@@ -9,9 +9,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
+from telemetry import snapshot
+
 load_dotenv()
 
-app = FastAPI(title="FALLEN AI", version="0.2.0")
+app = FastAPI(title="FALLEN AI", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,6 +21,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -34,6 +37,11 @@ def get_client() -> AsyncOpenAI:
 @app.get("/health")
 def health():
     return {"status": "online", "assistant": "FALLEN AI"}
+
+
+@app.get("/telemetry")
+def telemetry():
+    return snapshot()
 
 
 @app.post("/chat")
