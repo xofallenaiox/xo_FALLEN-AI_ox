@@ -17,13 +17,14 @@ for (let i = 0; i < 28; i++) {
 }
 const waveBars = [...wave.children];
 
-let activeReader = null;
 let abortController = null;
+let latestTelemetry = { cpu: 0, memory: 0, gpu: 0, network: null };
 
 function setState(state, label = state) {
   coreState.textContent = state;
   voiceLabel.textContent = label;
   coreStage.dataset.state = state;
+  document.body.dataset.aiState = state.toLowerCase();
 
   const colors = {
     IDLE: "#5f8f9a",
@@ -33,6 +34,7 @@ function setState(state, label = state) {
     ERROR: "#ff9f9f"
   };
   coreState.style.color = colors[state] || colors.IDLE;
+  logActivity(`CORE // ${state.toLowerCase()} state`);
 }
 
 function addMessage(text, role = "ai") {
@@ -61,46 +63,50 @@ updateClock();
 function animateWave(active = false) {
   waveBars.forEach((bar, index) => {
     const pulse = Math.abs(Math.sin(Date.now() / 170 + index * 0.7));
-    const base = active ? 5 + pulse * 19 : 4 + pulse * 5;
+    const loadBoost = Math.min(12, (latestTelemetry.gpu || 0) * 0.08);
+    const base = active ? 5 + pulse * (19 + loadBoost) : 4 + pulse * 5;
     bar.style.height = `${base}px`;
   });
 }
 setInterval(() => animateWave(coreState.textContent !== "IDLE"), 70);
 
-function setMetric(name, value) {
-  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
+function animateMetric(name, value, label = null) {
   const valueEl = $(`#${name}Value`);
   const barEl = $(`#${name}Bar`);
-  if (valueEl) valueEl.textContent = `${Math.round(normalized)}%`;
-  if (barEl) barEl.style.width = `${Math.max(3, normalized)}%`;
+  if (valueEl && value != null) valueEl.textContent = label || `${Math.round(value)}%`;
+  if (barEl && value != null) barEl.style.width = `${Math.max(3, Math.min(100, value))}%`;
 }
 
 async function refreshTelemetry() {
   try {
     const response = await fetch(`${API}/telemetry`, { cache: "no-store" });
-    if (!response.ok) throw new Error("telemetry offline");
+    if (!response.ok) throw new Error("telemetry unavailable");
     const data = await response.json();
+    latestTelemetry = {
+      cpu: Number(data.cpu) || 0,
+      memory: Number(data.memory) || 0,
+      gpu: Number(data.gpu) || 0,
+      network: data.network || null,
+    };
 
     systemStatus.textContent = "SYSTEM ONLINE";
-    setMetric("cpu", data.cpu);
-    setMetric("mem", data.memory);
+    animateMetric("cpu", latestTelemetry.cpu);
+    animateMetric("mem", latestTelemetry.memory);
+    animateMetric("gpu", latestTelemetry.gpu);
 
-    if (typeof data.gpu === "number") {
-      setMetric("gpu", data.gpu);
+    if (latestTelemetry.network) {
+      const sent = Number(latestTelemetry.network.bytes_sent || 0);
+      const recv = Number(latestTelemetry.network.bytes_recv || 0);
+      const net = Math.min(100, ((sent + recv) / (1024 * 1024 * 5)) * 100);
+      animateMetric("net", net, "ONLINE");
     } else {
-      $("#gpuValue").textContent = "N/A";
-      $("#gpuBar").style.width = "8%";
+      animateMetric("net", 0, "N/A");
     }
 
-    const rx = Number(data.network?.bytes_recv || 0);
-    const tx = Number(data.network?.bytes_sent || 0);
-    // Show a bounded activity meter based on cumulative network I/O.
-    const networkActivity = Math.min(100, ((rx + tx) / (1024 * 1024 * 1024)) * 12);
-    $("#netValue").textContent = "ONLINE";
-    $("#netBar").style.width = `${Math.max(12, networkActivity)}%`;
+    const intensity = Math.min(1.35, 0.78 + (latestTelemetry.cpu * 0.002) + (latestTelemetry.gpu * 0.002));
+    document.documentElement.style.setProperty("--core-intensity", intensity.toFixed(2));
   } catch {
     systemStatus.textContent = "LOCAL UI MODE";
-    logActivity("NET // telemetry unavailable");
   }
 }
 setInterval(refreshTelemetry, 1200);
@@ -137,13 +143,13 @@ async function sendMessage(message) {
     setState("SPEAKING", "RESPONDING");
     logActivity("AI // live response stream");
 
-    activeReader = response.body.getReader();
+    const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let finalText = "";
 
     while (true) {
-      const { value, done } = await activeReader.read();
+      const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -158,20 +164,17 @@ async function sendMessage(message) {
           if (event.type === "delta" && event.text) {
             finalText += event.text;
             updateStreamingText(assistantMessage, finalText);
-          } else if (event.type === "status" && event.label) {
-            voiceLabel.textContent = event.label;
-          } else if (event.type === "error") {
-            throw new Error(event.message || "AI stream failed");
           }
-        } catch (parseError) {
-          if (parseError instanceof Error && /AI stream failed/.test(parseError.message)) throw parseError;
+          if (event.type === "error") throw new Error(event.message || "Stream error");
+        } catch (err) {
+          if (err instanceof Error && err.message !== "Unexpected end of JSON input") throw err;
         }
       }
     }
 
     if (!finalText) updateStreamingText(assistantMessage, "No response received.");
     logActivity("AI // response complete");
-    setTimeout(() => setState("IDLE", "READY"), 1000);
+    setTimeout(() => setState("IDLE", "READY"), 900);
   } catch (error) {
     if (error.name === "AbortError") {
       logActivity("SYS // operation cancelled");
@@ -183,7 +186,6 @@ async function sendMessage(message) {
     updateStreamingText(assistantMessage, `Connection error: ${error.message}`);
     setTimeout(() => setState("IDLE", "READY"), 1500);
   } finally {
-    activeReader = null;
     abortController = null;
   }
 }
