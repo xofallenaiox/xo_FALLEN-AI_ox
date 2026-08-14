@@ -59,3 +59,21 @@ class MemoryStore:
 
 
 memory = MemoryStore()
+
+
+def save_memory(key: str, value: str) -> dict[str, Any]:
+    memory.add("user", value, metadata=key)
+    return {"ok": True, "key": key}
+
+
+def search_memory(query: str, limit: int = 20) -> list[dict[str, Any]]:
+    return memory.search(query, limit=limit)
+
+
+def delete_memory(key: str) -> dict[str, Any]:
+    rows = memory.search(key, limit=100)
+    deleted = 0
+    for row in rows:
+        if row.get("metadata") == key:
+            deleted += int(memory.delete(int(row["id"])))
+    return {"ok": True, "key": key, "deleted": deleted}
