@@ -134,6 +134,28 @@ function updateStreamingText(element, text) {
   messages.scrollTop = messages.scrollHeight;
 }
 
+async function speakResponse(text) {
+  if (!text.trim()) return;
+  try {
+    setState("SPEAKING", "SPEAKING");
+    logActivity("VOICE // starting FALLEN speech");
+    const response = await fetch(`${API}/voice/speak`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.message || result.status || "Voice playback failed");
+    }
+    logActivity("VOICE // FALLEN speech active");
+    scheduleIdle(Math.max(1400, Math.min(7000, text.length * 48)));
+  } catch (error) {
+    logActivity(`VOICE // ${error.message}`);
+    scheduleIdle(900);
+  }
+}
+
 async function sendMessage(message) {
   addMessage(message, "user");
   input.value = "";
@@ -185,9 +207,13 @@ async function sendMessage(message) {
       }
     }
 
-    if (!finalText) updateStreamingText(assistantMessage, "No response received.");
+    if (!finalText) {
+      updateStreamingText(assistantMessage, "No response received.");
+      scheduleIdle();
+    } else {
+      await speakResponse(finalText);
+    }
     logActivity("AI // response complete");
-    scheduleIdle();
   } catch (error) {
     if (error.name === "AbortError") {
       logActivity("SYS // operation cancelled");
