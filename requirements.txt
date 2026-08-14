@@ -2,3 +2,4 @@ fastapi>=0.115,<1
 uvicorn[standard]>=0.34,<1
 openai>=1.68,<2
 python-dotenv>=1.0,<2
+psutil>=6.1,<7
