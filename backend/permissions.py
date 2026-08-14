@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from enum import IntEnum
@@ -15,7 +16,7 @@ class PermissionLevel(IntEnum):
     PRIVILEGED = 3
 
     @classmethod
-    def parse(cls, value: str | int | "PermissionLevel") -> "PermissionLevel":
+    def parse(cls, value: str | int | PermissionLevel) -> PermissionLevel:
         if isinstance(value, cls):
             return value
         if isinstance(value, int):
@@ -75,11 +76,11 @@ class PermissionManager:
         grant = self._grants.get((subject or self.default_subject, capability))
         return bool(grant and grant.active() and grant.level >= PermissionLevel.parse(required))
 
-    def list(self, *, subject: str | None = None) -> list[dict[str, Any]]:
+    def list(self, *, subject: str | None = None) -> builtins.list[dict[str, Any]]:
         subject = subject or self.default_subject
         return [grant.to_dict() for (grant_subject, _), grant in self._grants.items() if grant_subject == subject]
 
-    def snapshot(self) -> list[dict[str, Any]]:
+    def snapshot(self) -> builtins.list[dict[str, Any]]:
         return [grant.to_dict() for grant in self._grants.values()]
 
 
