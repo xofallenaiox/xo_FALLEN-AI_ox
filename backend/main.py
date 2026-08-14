@@ -9,15 +9,15 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
-from telemetry import snapshot
-from voice import speak
-from event_bus import FallenEvent, bus
-from memory import delete_memory, save_memory, search_memory
-from permissions import permission_manager
+from .telemetry import snapshot
+from .voice import speak
+from .event_bus import FallenEvent, bus
+from .memory import delete_memory, save_memory, search_memory
+from .permissions import permission_manager
 
 load_dotenv()
 
-app = FastAPI(title="FALLEN AI", version="0.6.0")
+app = FastAPI(title="FALLEN AI", version="0.7.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,7 +59,7 @@ def get_client() -> AsyncOpenAI:
 
 @app.get("/health")
 def health():
-    return {"status": "online", "assistant": "FALLEN AI"}
+    return {"status": "online", "assistant": "FALLEN AI", "version": "0.7.0"}
 
 
 @app.get("/telemetry")
