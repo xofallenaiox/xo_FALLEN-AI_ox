@@ -67,26 +67,41 @@ function animateWave(active = false) {
 }
 setInterval(() => animateWave(coreState.textContent !== "IDLE"), 70);
 
-function animateMetric(name, value) {
+function setMetric(name, value) {
+  const normalized = Math.max(0, Math.min(100, Number(value) || 0));
   const valueEl = $(`#${name}Value`);
   const barEl = $(`#${name}Bar`);
-  if (valueEl) valueEl.textContent = `${Math.round(value)}%`;
-  if (barEl) barEl.style.width = `${Math.max(3, Math.min(100, value))}%`;
+  if (valueEl) valueEl.textContent = `${Math.round(normalized)}%`;
+  if (barEl) barEl.style.width = `${Math.max(3, normalized)}%`;
 }
 
 async function refreshTelemetry() {
   try {
-    const response = await fetch(`${API}/health`, { cache: "no-store" });
-    if (!response.ok) throw new Error("offline");
+    const response = await fetch(`${API}/telemetry`, { cache: "no-store" });
+    if (!response.ok) throw new Error("telemetry offline");
+    const data = await response.json();
+
     systemStatus.textContent = "SYSTEM ONLINE";
+    setMetric("cpu", data.cpu);
+    setMetric("mem", data.memory);
+
+    if (typeof data.gpu === "number") {
+      setMetric("gpu", data.gpu);
+    } else {
+      $("#gpuValue").textContent = "N/A";
+      $("#gpuBar").style.width = "8%";
+    }
+
+    const rx = Number(data.network?.bytes_recv || 0);
+    const tx = Number(data.network?.bytes_sent || 0);
+    // Show a bounded activity meter based on cumulative network I/O.
+    const networkActivity = Math.min(100, ((rx + tx) / (1024 * 1024 * 1024)) * 12);
+    $("#netValue").textContent = "ONLINE";
+    $("#netBar").style.width = `${Math.max(12, networkActivity)}%`;
   } catch {
     systemStatus.textContent = "LOCAL UI MODE";
+    logActivity("NET // telemetry unavailable");
   }
-
-  animateMetric("cpu", 28 + Math.random() * 48);
-  animateMetric("mem", 38 + Math.random() * 22);
-  animateMetric("gpu", 22 + Math.random() * 55);
-  $("#netBar").style.width = `${80 + Math.random() * 19}%`;
 }
 setInterval(refreshTelemetry, 1200);
 refreshTelemetry();
@@ -145,9 +160,11 @@ async function sendMessage(message) {
             updateStreamingText(assistantMessage, finalText);
           } else if (event.type === "status" && event.label) {
             voiceLabel.textContent = event.label;
+          } else if (event.type === "error") {
+            throw new Error(event.message || "AI stream failed");
           }
-        } catch {
-          // Ignore malformed SSE frames while keeping the stream alive.
+        } catch (parseError) {
+          if (parseError instanceof Error && /AI stream failed/.test(parseError.message)) throw parseError;
         }
       }
     }
