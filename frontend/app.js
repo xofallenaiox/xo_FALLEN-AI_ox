@@ -8,14 +8,17 @@ const voiceLabel = $("#voiceLabel");
 const systemStatus = $("#systemStatus");
 const activityLog = $("#activityLog");
 const coreStage = $("#coreStage");
-
 const wave = $("#wave");
+
 for (let i = 0; i < 28; i++) {
   const bar = document.createElement("i");
-  bar.style.height = `${5 + Math.random() * 17}px`;
+  bar.style.height = "8px";
   wave.appendChild(bar);
 }
 const waveBars = [...wave.children];
+
+let activeReader = null;
+let abortController = null;
 
 function setState(state, label = state) {
   coreState.textContent = state;
@@ -57,11 +60,12 @@ updateClock();
 
 function animateWave(active = false) {
   waveBars.forEach((bar, index) => {
-    const base = active ? 5 + Math.random() * 19 : 4 + Math.random() * 5;
-    bar.style.height = `${base + Math.abs(Math.sin(Date.now() / 180 + index)) * (active ? 10 : 2)}px`;
+    const pulse = Math.abs(Math.sin(Date.now() / 170 + index * 0.7));
+    const base = active ? 5 + pulse * 19 : 4 + pulse * 5;
+    bar.style.height = `${base}px`;
   });
 }
-setInterval(() => animateWave(coreState.textContent !== "IDLE"), 90);
+setInterval(() => animateWave(coreState.textContent !== "IDLE"), 70);
 
 function animateMetric(name, value) {
   const valueEl = $(`#${name}Value`);
@@ -79,7 +83,6 @@ async function refreshTelemetry() {
     systemStatus.textContent = "LOCAL UI MODE";
   }
 
-  // Frontend-safe animated placeholders until the backend exposes telemetry.
   animateMetric("cpu", 28 + Math.random() * 48);
   animateMetric("mem", 38 + Math.random() * 22);
   animateMetric("gpu", 22 + Math.random() * 55);
@@ -88,31 +91,83 @@ async function refreshTelemetry() {
 setInterval(refreshTelemetry, 1200);
 refreshTelemetry();
 
+function updateStreamingText(element, text) {
+  element.querySelector(".message-body").textContent = text;
+  messages.scrollTop = messages.scrollHeight;
+}
+
 async function sendMessage(message) {
   addMessage(message, "user");
   input.value = "";
   setState("THINKING", "PROCESSING");
-  logActivity("AI // processing command");
-  const thinking = addMessage("Thinking…", "ai");
+  logActivity("AI // request dispatched");
+  const assistantMessage = addMessage("", "ai");
+  abortController = new AbortController();
 
   try {
-    const response = await fetch(`${API}/chat`, {
+    const response = await fetch(`${API}/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message }),
+      signal: abortController.signal
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Request failed");
+
+    if (!response.ok) {
+      const fallback = await response.json().catch(() => ({}));
+      throw new Error(fallback.detail || "Request failed");
+    }
+
+    if (!response.body) throw new Error("Streaming is unavailable");
 
     setState("SPEAKING", "RESPONDING");
-    logActivity("AI // response received");
-    thinking.querySelector(".message-body").textContent = data.reply;
-    setTimeout(() => setState("IDLE", "READY"), 1300);
+    logActivity("AI // live response stream");
+
+    activeReader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalText = "";
+
+    while (true) {
+      const { value, done } = await activeReader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        try {
+          const event = JSON.parse(payload);
+          if (event.type === "delta" && event.text) {
+            finalText += event.text;
+            updateStreamingText(assistantMessage, finalText);
+          } else if (event.type === "status" && event.label) {
+            voiceLabel.textContent = event.label;
+          }
+        } catch {
+          // Ignore malformed SSE frames while keeping the stream alive.
+        }
+      }
+    }
+
+    if (!finalText) updateStreamingText(assistantMessage, "No response received.");
+    logActivity("AI // response complete");
+    setTimeout(() => setState("IDLE", "READY"), 1000);
   } catch (error) {
+    if (error.name === "AbortError") {
+      logActivity("SYS // operation cancelled");
+      setState("IDLE", "READY");
+      return;
+    }
     setState("ERROR", "ERROR");
     logActivity(`ERR // ${error.message}`);
-    thinking.querySelector(".message-body").textContent = `Connection error: ${error.message}`;
-    setTimeout(() => setState("IDLE", "READY"), 1700);
+    updateStreamingText(assistantMessage, `Connection error: ${error.message}`);
+    setTimeout(() => setState("IDLE", "READY"), 1500);
+  } finally {
+    activeReader = null;
+    abortController = null;
   }
 }
 
@@ -133,19 +188,23 @@ $("#listenBtn").addEventListener("click", () => {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const recognition = new Recognition();
   recognition.lang = navigator.language || "en-US";
-  recognition.interimResults = false;
+  recognition.interimResults = true;
+  recognition.continuous = false;
   recognition.maxAlternatives = 1;
   setState("LISTENING", "LISTENING");
   logActivity("VOICE // microphone active");
 
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript.trim();
-    input.value = transcript;
-    setState("THINKING", "PROCESSING");
-    sendMessage(transcript);
+    const latest = event.results[event.results.length - 1][0].transcript.trim();
+    input.value = latest;
+    if (event.results[event.results.length - 1].isFinal && latest) {
+      setState("THINKING", "PROCESSING");
+      sendMessage(latest);
+    }
   };
-  recognition.onerror = () => {
+  recognition.onerror = (event) => {
     setState("ERROR", "VOICE ERROR");
+    logActivity(`VOICE // ${event.error || "recognition error"}`);
     setTimeout(() => setState("IDLE", "READY"), 1200);
   };
   recognition.onend = () => {
@@ -161,6 +220,7 @@ $("#thinkBtn").addEventListener("click", () => {
 });
 
 $("#stopBtn").addEventListener("click", () => {
+  if (abortController) abortController.abort();
   setState("IDLE", "READY");
   logActivity("SYS // operation stopped");
 });
