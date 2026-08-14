@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -51,9 +52,9 @@ class DeviceRegistry:
         return self._devices.get(device_id)
 
     def list(self, authorized_only: bool = False) -> list[dict[str, Any]]:
-        devices = self._devices.values()
+        devices: Iterable[Device] = self._devices.values()
         if authorized_only:
-            devices = (d for d in devices if d.authorized)
+            devices = (device for device in devices if device.authorized)
         return [device.to_dict() for device in devices]
 
     def remove(self, device_id: str) -> None:
