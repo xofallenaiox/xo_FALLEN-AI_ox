@@ -10,10 +10,11 @@ from pydantic import BaseModel
 from openai import AsyncOpenAI
 
 from telemetry import snapshot
+from voice import speak
 
 load_dotenv()
 
-app = FastAPI(title="FALLEN AI", version="0.3.0")
+app = FastAPI(title="FALLEN AI", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,6 +26,10 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     message: str
+
+
+class SpeakRequest(BaseModel):
+    text: str
 
 
 def get_client() -> AsyncOpenAI:
@@ -42,6 +47,11 @@ def health():
 @app.get("/telemetry")
 def telemetry():
     return snapshot()
+
+
+@app.post("/voice/speak")
+def voice_speak(request: SpeakRequest):
+    return speak(request.text)
 
 
 @app.post("/chat")
