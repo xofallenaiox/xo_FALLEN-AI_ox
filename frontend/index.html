@@ -1,24 +1,78 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FALLEN AI</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="app">
-    <header>
-      <div class="orb"></div>
-      <div><h1>FALLEN AI</h1><p>Personal AI Interface</p></div>
-      <span id="status">OFFLINE</span>
+  <div class="app-shell">
+    <header class="topbar glass">
+      <div class="brand"><span class="brand-mark">✦</span><span>FALLEN AI</span></div>
+      <div class="system-state"><span class="status-dot"></span><span id="systemStatus">SYSTEM ONLINE</span></div>
+      <div class="clock" id="clock">--:--:--</div>
     </header>
-    <section id="chat" class="chat"></section>
-    <form id="form">
-      <input id="message" autocomplete="off" placeholder="Talk to FALLEN AI...">
-      <button>Send</button>
-    </form>
-  </main>
+
+    <aside class="sidebar glass">
+      <div class="section-label">COMMAND</div>
+      <button class="nav-btn active" data-mode="chat">◉ <span>AI CORE</span></button>
+      <button class="nav-btn" data-mode="memory">◌ <span>MEMORY</span></button>
+      <button class="nav-btn" data-mode="tools">⌘ <span>TOOLS</span></button>
+      <button class="nav-btn" data-mode="system">▦ <span>SYSTEM</span></button>
+      <button class="nav-btn" data-mode="settings">⚙ <span>SETTINGS</span></button>
+      <div class="sidebar-footer">
+        <div>NEURAL LINK</div>
+        <div class="progress"><span id="neuralProgress"></span></div>
+        <small id="neuralText">100% READY</small>
+      </div>
+    </aside>
+
+    <main class="main-grid">
+      <section class="core-panel glass">
+        <div class="panel-head"><span>AI CORE</span><span id="coreState">IDLE</span></div>
+        <div class="core-stage" id="coreStage" aria-label="FALLEN AI core">
+          <div class="orbital orbit-a"></div>
+          <div class="orbital orbit-b"></div>
+          <div class="orbital orbit-c"></div>
+          <div class="core-grid"></div>
+          <div class="core-sphere"><span>FALLEN</span><small>AI CORE</small></div>
+          <div class="particle p1"></div><div class="particle p2"></div><div class="particle p3"></div><div class="particle p4"></div>
+          <div class="scanline"></div>
+        </div>
+        <div class="voice-bar"><span id="voiceLabel">READY</span><div class="wave" id="wave"></div></div>
+        <div class="core-actions">
+          <button id="listenBtn" class="action-btn primary">🎙 LISTEN</button>
+          <button id="thinkBtn" class="action-btn">◉ THINK</button>
+          <button id="stopBtn" class="action-btn danger">■ STOP</button>
+        </div>
+      </section>
+
+      <section class="chat-panel glass">
+        <div class="panel-head"><span>CONVERSATION</span><span class="live-badge">LIVE</span></div>
+        <div class="messages" id="messages">
+          <div class="message ai"><div class="message-label">FALLEN</div><div class="message-body">System initialized. Neural link online. How can I assist?</div></div>
+        </div>
+        <form class="composer" id="chatForm">
+          <input id="promptInput" autocomplete="off" placeholder="Command FALLEN..." />
+          <button type="submit">SEND</button>
+        </form>
+      </section>
+
+      <section class="telemetry-panel glass">
+        <div class="panel-head"><span>SYSTEM TELEMETRY</span><span id="telemetryMode">LIVE</span></div>
+        <div class="metric"><div><span>CPU</span><b id="cpuValue">--%</b></div><div class="bar"><span id="cpuBar"></span></div></div>
+        <div class="metric"><div><span>MEMORY</span><b id="memValue">--%</b></div><div class="bar"><span id="memBar"></span></div></div>
+        <div class="metric"><div><span>GPU</span><b id="gpuValue">--%</b></div><div class="bar"><span id="gpuBar"></span></div></div>
+        <div class="metric"><div><span>NETWORK</span><b id="netValue">ONLINE</b></div><div class="bar"><span id="netBar"></span></div></div>
+        <div class="activity-log" id="activityLog">
+          <div>SYS // boot sequence complete</div>
+          <div>AI // core standing by</div>
+          <div>NET // secure channel ready</div>
+        </div>
+      </section>
+    </main>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>
