@@ -5,7 +5,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
-from event_bus import FallenEvent, bus
+from ..event_bus import FallenEvent, bus
 
 
 StartFn = Callable[[], Awaitable[None] | None]
@@ -79,16 +79,13 @@ class ServiceSupervisor:
         async with self._lock:
             for name in reversed(self._started):
                 spec = self._services[name]
-                try:
-                    await self._call(spec.stop)
-                    await bus.publish(FallenEvent(
-                        type="service.stopped",
-                        status="stopped",
-                        message=f"Service stopped: {name}",
-                        target=name,
-                    ))
-                finally:
-                    pass
+                await self._call(spec.stop)
+                await bus.publish(FallenEvent(
+                    type="service.stopped",
+                    status="stopped",
+                    message=f"Service stopped: {name}",
+                    target=name,
+                ))
             self._started.clear()
 
 
