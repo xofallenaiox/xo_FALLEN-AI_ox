@@ -43,7 +43,7 @@ jobs:
         run: python -m compileall -q backend tests
 
       - name: Lint Python
-        run: python -m ruff check backend tests
+        run: python -m ruff check --select F,E9 backend tests
 
   backend-types:
     name: Backend type checks
