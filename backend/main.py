@@ -1,13 +1,17 @@
+import json
 import os
+from typing import AsyncGenerator
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 load_dotenv()
 
-app = FastAPI(title="FALLEN AI", version="0.1.0")
+app = FastAPI(title="FALLEN AI", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,19 +23,24 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
 
+
+def get_client() -> AsyncOpenAI:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+    return AsyncOpenAI(api_key=api_key)
+
+
 @app.get("/health")
 def health():
     return {"status": "online", "assistant": "FALLEN AI"}
 
-@app.post("/chat")
-def chat(request: ChatRequest):
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
-    client = OpenAI(api_key=api_key)
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    client = get_client()
     try:
-        response = client.responses.create(
+        response = await client.responses.create(
             model=os.getenv("OPENAI_MODEL", "gpt-5.6"),
             instructions=(
                 "You are FALLEN AI, a capable personal AI assistant. "
@@ -42,3 +51,40 @@ def chat(request: ChatRequest):
         return {"reply": response.output_text}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI request failed: {exc}")
+
+
+async def stream_response(message: str) -> AsyncGenerator[str, None]:
+    client = get_client()
+    try:
+        stream = await client.responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-5.6"),
+            instructions=(
+                "You are FALLEN AI, a capable personal AI assistant. "
+                "Be concise, helpful, honest, and safety-conscious."
+            ),
+            input=message,
+            stream=True,
+        )
+        async for event in stream:
+            event_type = getattr(event, "type", "")
+            if event_type == "response.output_text.delta":
+                delta = getattr(event, "delta", "")
+                if delta:
+                    yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
+            elif event_type == "response.completed":
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+    except Exception as exc:
+        yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    return StreamingResponse(
+        stream_response(request.message),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
