@@ -25,9 +25,9 @@ def local_network() -> dict[str, Any]:
     addresses: list[str] = []
     try:
         for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
-            ip = info[4][0]
-            if ip not in addresses and not ip.startswith("127."):
-                addresses.append(ip)
+            candidate = info[4][0]
+            if isinstance(candidate, str) and candidate not in addresses and not candidate.startswith("127."):
+                addresses.append(candidate)
     except OSError:
         pass
 
