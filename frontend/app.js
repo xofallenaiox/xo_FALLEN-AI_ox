@@ -19,12 +19,15 @@ const waveBars = [...wave.children];
 
 let abortController = null;
 let latestTelemetry = { cpu: 0, memory: 0, gpu: 0, network: null };
+let interactionState = "idle";
+let stateTimer = null;
 
 function setState(state, label = state) {
+  interactionState = state.toLowerCase();
   coreState.textContent = state;
   voiceLabel.textContent = label;
   coreStage.dataset.state = state;
-  document.body.dataset.aiState = state.toLowerCase();
+  document.body.dataset.aiState = interactionState;
 
   const colors = {
     IDLE: "#5f8f9a",
@@ -34,7 +37,12 @@ function setState(state, label = state) {
     ERROR: "#ff9f9f"
   };
   coreState.style.color = colors[state] || colors.IDLE;
-  logActivity(`CORE // ${state.toLowerCase()} state`);
+  if (state !== "IDLE") logActivity(`CORE // ${state.toLowerCase()} state`);
+}
+
+function scheduleIdle(ms = 900) {
+  clearTimeout(stateTimer);
+  stateTimer = setTimeout(() => setState("IDLE", "READY"), ms);
 }
 
 function addMessage(text, role = "ai") {
@@ -60,15 +68,22 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+function getAnimationBoost() {
+  const load = Math.max(latestTelemetry.cpu || 0, latestTelemetry.gpu || 0);
+  const stateBoost = interactionState === "thinking" ? 1.8 : interactionState === "speaking" ? 1.45 : interactionState === "listening" ? 1.65 : 1;
+  return Math.min(3.2, 1 + load / 100 * 1.15) * stateBoost;
+}
+
 function animateWave(active = false) {
+  const boost = getAnimationBoost();
   waveBars.forEach((bar, index) => {
-    const pulse = Math.abs(Math.sin(Date.now() / 170 + index * 0.7));
-    const loadBoost = Math.min(12, (latestTelemetry.gpu || 0) * 0.08);
-    const base = active ? 5 + pulse * (19 + loadBoost) : 4 + pulse * 5;
-    bar.style.height = `${base}px`;
+    const pulse = Math.abs(Math.sin(Date.now() / (170 / Math.max(1, boost)) + index * 0.7));
+    const amplitude = active ? 18 * boost : 5 + boost;
+    const base = active ? 5 + pulse * amplitude : 4 + pulse * 5;
+    bar.style.height = `${Math.min(30, base)}px`;
   });
 }
-setInterval(() => animateWave(coreState.textContent !== "IDLE"), 70);
+setInterval(() => animateWave(interactionState !== "idle"), 70);
 
 function animateMetric(name, value, label = null) {
   const valueEl = $(`#${name}Value`);
@@ -103,13 +118,15 @@ async function refreshTelemetry() {
       animateMetric("net", 0, "N/A");
     }
 
-    const intensity = Math.min(1.35, 0.78 + (latestTelemetry.cpu * 0.002) + (latestTelemetry.gpu * 0.002));
+    const load = Math.max(latestTelemetry.cpu, latestTelemetry.gpu);
+    const intensity = Math.min(1.7, 0.8 + load * 0.007);
     document.documentElement.style.setProperty("--core-intensity", intensity.toFixed(2));
+    document.documentElement.style.setProperty("--core-speed", `${Math.max(3.2, 9 - load * 0.045)}s`);
   } catch {
     systemStatus.textContent = "LOCAL UI MODE";
   }
 }
-setInterval(refreshTelemetry, 1200);
+setInterval(refreshTelemetry, 900);
 refreshTelemetry();
 
 function updateStreamingText(element, text) {
@@ -137,7 +154,6 @@ async function sendMessage(message) {
       const fallback = await response.json().catch(() => ({}));
       throw new Error(fallback.detail || "Request failed");
     }
-
     if (!response.body) throw new Error("Streaming is unavailable");
 
     setState("SPEAKING", "RESPONDING");
@@ -159,22 +175,19 @@ async function sendMessage(message) {
         if (!line.startsWith("data:")) continue;
         const payload = line.slice(5).trim();
         if (!payload || payload === "[DONE]") continue;
-        try {
-          const event = JSON.parse(payload);
-          if (event.type === "delta" && event.text) {
-            finalText += event.text;
-            updateStreamingText(assistantMessage, finalText);
-          }
-          if (event.type === "error") throw new Error(event.message || "Stream error");
-        } catch (err) {
-          if (err instanceof Error && err.message !== "Unexpected end of JSON input") throw err;
+        const event = JSON.parse(payload);
+        if (event.type === "delta" && event.text) {
+          finalText += event.text;
+          updateStreamingText(assistantMessage, finalText);
+        } else if (event.type === "error") {
+          throw new Error(event.message || "Stream error");
         }
       }
     }
 
     if (!finalText) updateStreamingText(assistantMessage, "No response received.");
     logActivity("AI // response complete");
-    setTimeout(() => setState("IDLE", "READY"), 900);
+    scheduleIdle();
   } catch (error) {
     if (error.name === "AbortError") {
       logActivity("SYS // operation cancelled");
@@ -184,7 +197,7 @@ async function sendMessage(message) {
     setState("ERROR", "ERROR");
     logActivity(`ERR // ${error.message}`);
     updateStreamingText(assistantMessage, `Connection error: ${error.message}`);
-    setTimeout(() => setState("IDLE", "READY"), 1500);
+    scheduleIdle(1500);
   } finally {
     abortController = null;
   }
@@ -200,7 +213,7 @@ $("#listenBtn").addEventListener("click", () => {
   if (!("SpeechRecognition" in window || "webkitSpeechRecognition" in window)) {
     addMessage("Voice recognition is not available in this browser. Use Chrome or Edge on Windows.", "ai");
     setState("ERROR", "VOICE N/A");
-    setTimeout(() => setState("IDLE", "READY"), 1300);
+    scheduleIdle(1300);
     return;
   }
 
@@ -214,9 +227,10 @@ $("#listenBtn").addEventListener("click", () => {
   logActivity("VOICE // microphone active");
 
   recognition.onresult = (event) => {
-    const latest = event.results[event.results.length - 1][0].transcript.trim();
+    const result = event.results[event.results.length - 1];
+    const latest = result[0].transcript.trim();
     input.value = latest;
-    if (event.results[event.results.length - 1].isFinal && latest) {
+    if (result.isFinal && latest) {
       setState("THINKING", "PROCESSING");
       sendMessage(latest);
     }
@@ -224,10 +238,10 @@ $("#listenBtn").addEventListener("click", () => {
   recognition.onerror = (event) => {
     setState("ERROR", "VOICE ERROR");
     logActivity(`VOICE // ${event.error || "recognition error"}`);
-    setTimeout(() => setState("IDLE", "READY"), 1200);
+    scheduleIdle(1200);
   };
   recognition.onend = () => {
-    if (coreState.textContent === "LISTENING") setState("IDLE", "READY");
+    if (interactionState === "listening") setState("IDLE", "READY");
   };
   recognition.start();
 });
@@ -235,7 +249,7 @@ $("#listenBtn").addEventListener("click", () => {
 $("#thinkBtn").addEventListener("click", () => {
   setState("THINKING", "THINKING");
   logActivity("CORE // neural cycle active");
-  setTimeout(() => setState("IDLE", "READY"), 1800);
+  scheduleIdle(1800);
 });
 
 $("#stopBtn").addEventListener("click", () => {
