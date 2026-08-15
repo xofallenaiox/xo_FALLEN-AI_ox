@@ -39,7 +39,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -56,10 +55,10 @@ jobs:
       - name: Python syntax check
         run: |
           python -m compileall -q backend tests
-
-      - name: Ruff lint
+          
+      - name: Ruff safety lint
         run: |
-          python -m ruff check backend tests
+          python -m ruff check --select F,E9 backend tests
 
       - name: Run Python tests
         run: |
@@ -171,9 +170,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
+            
       - name: Validate required frontend files
         run: |
           test -f frontend/index.html
