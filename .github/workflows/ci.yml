@@ -5,10 +5,25 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fallen-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
 
 jobs:
-  validate:
+  backend-quality:
+    name: Backend syntax and lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,20 +33,126 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+      - name: Install application and lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install ruff
 
       - name: Python syntax check
-        run: python -m compileall backend
+        run: python -m compileall -q backend tests
 
-      - name: Backend import check
-        env:
-          OPENAI_API_KEY: ci-placeholder
-          OPENAI_MODEL: gpt-5.6
-        run: python -c "import backend.main; print('backend import: OK')"
+      - name: Lint Python
+        run: python -m ruff check --select F,E9 backend tests
 
-      - name: Frontend smoke check
+  backend-types:
+    name: Backend type checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install application and type-check dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install mypy
+
+      - name: Check Python types
+        run: python -m mypy --ignore-missing-imports --check-untyped-defs backend tests
+
+  backend-safety-tests:
+    name: Backend tests and safe smoke checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FALLEN_ENV: ci
+      FALLEN_VOICE_ENABLED: "false"
+      OPENAI_API_KEY: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install application and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+
+      - name: Run unit and permission tests
+        run: python -m pytest -q tests
+
+      - name: Run backend safety smoke checks
+        run: |
+          python - <<'PY'
+          import os
+
+          from backend.main import app, health
+          from backend.permissions import PermissionLevel, PermissionManager
+
+          assert not os.getenv("OPENAI_API_KEY")
+          assert health()["status"] == "online"
+
+          paths = {route.path for route in app.routes}
+          assert {"/health", "/permissions", "/chat", "/chat/stream"}.issubset(paths)
+
+          permissions = PermissionManager()
+          assert not permissions.check("router.manage", PermissionLevel.READ)
+          permissions.grant("router.manage", PermissionLevel.WRITE)
+          assert permissions.check("router.manage", PermissionLevel.READ)
+          assert not permissions.check("router.manage", PermissionLevel.PRIVILEGED)
+          print("safe backend smoke checks: OK")
+          PY
+
+  frontend-validation:
+    name: Frontend validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check JavaScript syntax
+        run: node --check frontend/app.js
+
+      - name: Check static frontend assets
         run: |
           test -f frontend/index.html
           test -f frontend/styles.css
-          test -f frontend/app.js
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          class AssetParser(HTMLParser):
+              def __init__(self) -> None:
+                  super().__init__()
+                  self.assets: set[str] = set()
+
+              def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+                  attributes = dict(attrs)
+                  if tag == "link" and attributes.get("rel") == "stylesheet":
+                      self.assets.add(attributes.get("href", ""))
+                  if tag == "script" and attributes.get("src"):
+                      self.assets.add(attributes["src"])
+
+          parser = AssetParser()
+          parser.feed(Path("frontend/index.html").read_text(encoding="utf-8"))
+          assert {"styles.css", "app.js"}.issubset(parser.assets)
+          print("static frontend checks: OK")
+          PY

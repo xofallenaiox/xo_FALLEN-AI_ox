@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+import builtins
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -9,7 +10,7 @@ class RouterAdapter:
     name: str
     vendor: str
     base_url: str
-    capabilities: list[str]
+    capabilities: builtins.list[str]
     authenticated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -30,13 +31,13 @@ class RouterManager:
     def register(self, adapter: RouterAdapter) -> None:
         self._adapters[adapter.name] = adapter
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         return [adapter.to_dict() for adapter in self._adapters.values()]
 
     def get(self, name: str) -> RouterAdapter | None:
         return self._adapters.get(name)
 
-    def capabilities(self, name: str) -> list[str]:
+    def capabilities(self, name: str) -> builtins.list[str]:
         adapter = self._adapters.get(name)
         if adapter is None:
             raise KeyError(name)

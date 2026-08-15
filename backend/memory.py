@@ -38,7 +38,9 @@ class MemoryStore:
                 (kind, content, metadata),
             )
             conn.commit()
-            return int(cur.lastrowid)
+            if cur.lastrowid is None:
+                raise RuntimeError("Unable to save memory")
+            return cur.lastrowid
 
     def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         pattern = f"%{query}%"
