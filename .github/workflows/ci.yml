@@ -1,4 +1,4 @@
-name: FALLEN AI CW
+name: FALLEN AI CI
 
 on:
   push:
