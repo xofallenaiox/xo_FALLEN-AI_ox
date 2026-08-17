@@ -24,7 +24,10 @@ env:
   PYTHONUNBUFFERED: "1"
   FALLEN_ENV: ci
   FALLEN_VOICE_ENABLED: "false"
-  OPENAI_API_KEY: ""
+  OPENAI_API_KEY: "ci-test-key"
+  FALLEN_API_TOKEN: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  FALLEN_SESSION_SECRET: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+  FALLEN_AGENT_ENROLLMENT_TOKEN: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 
 jobs:
 
@@ -100,10 +103,8 @@ jobs:
       - name: Validate API routes and permissions
         run: |
           python - <<'PY'
-          from backend.main import app, health
-          from backend.permissions import PermissionLevel, PermissionManager
-
-          assert health()["status"] == "online"
+          from backend.main import app
+          from backend.permissions import get_tool_policy
 
           routes = {route.path for route in app.routes}
 
@@ -111,44 +112,27 @@ jobs:
               "/health",
               "/permissions",
               "/chat",
-              "/chat/stream",
+              "/auth/session",
+              "/agents/register",
+              "/agents/poll",
+              "/agents/result",
           }
 
           missing = required_routes - routes
+          assert not missing, f"Missing required routes: {sorted(missing)}"
 
-          assert not missing, (
-              f"Missing required routes: {sorted(missing)}"
-          )
+          read_policy = get_tool_policy("windows_read_text")
+          assert read_policy is not None
+          assert read_policy.risk == "medium"
+          assert read_policy.requires_confirmation is True
 
-          permissions = PermissionManager()
+          for tool_name in ("windows_open_app", "windows_speak"):
+              policy = get_tool_policy(tool_name)
+              assert policy is not None
+              assert policy.risk == "low"
+              assert policy.requires_confirmation is False
 
-          # No permission should exist by default.
-          assert not permissions.check(
-              "router.manage",
-              PermissionLevel.READ,
-          )
-
-          # WRITE grants READ access.
-          permissions.grant(
-              "router.manage",
-              PermissionLevel.WRITE,
-          )
-
-          assert permissions.check(
-              "router.manage",
-              PermissionLevel.READ,
-          )
-
-          assert permissions.check(
-              "router.manage",
-              PermissionLevel.WRITE,
-          )
-
-          # WRITE must not automatically grant PRIVILEGED.
-          assert not permissions.check(
-              "router.manage",
-              PermissionLevel.PRIVILEGED,
-          )
+          assert get_tool_policy("powershell_exec") is None
 
           print("FALLEN backend safety checks: OK")
           PY
