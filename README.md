@@ -63,3 +63,48 @@ FALLEN AI
 ## Roadmap
 
 Next stages include authenticated router management, vendor/device adapters, broader Windows controls, Android/media/smart-device integrations, desktop packaging, richer voice output, and a unified device/network control center.
+
+
+## Hardened local startup
+
+```powershell
+.\scripts\bootstrap_windows.ps1
+# Set OPENAI_API_KEY in .env
+.\scripts\start-local.ps1
+```
+
+Open `http://127.0.0.1:8000/`. The backend serves the HUD directly; a separate frontend server is not required.
+
+## Production configuration
+
+Render should run:
+
+```text
+python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+```
+
+Required secrets are `OPENAI_API_KEY`, `FALLEN_API_TOKEN`,
+`FALLEN_SESSION_SECRET`, and `FALLEN_AGENT_ENROLLMENT_TOKEN`.
+Set `FALLEN_ALLOWED_HOSTS` to the exact Render hostname and
+`FALLEN_ALLOWED_ORIGINS` to its `https://` origin.
+
+Never commit `.env`, agent credentials, or API keys.
+
+
+### Windows Agent enrollment
+
+After the Render service is healthy:
+
+```powershell
+.\scripts\register-agent.ps1
+python -m agent.main
+```
+
+The registration script stores only the agent credentials in `agent\.env`; the Cloud Brain `.env` is not reused by the agent.
+
+
+## Production deployment
+
+The hardened build is intended to run as a same-origin FastAPI service on Render. Use
+`scripts/publish-production.ps1` to publish the current source to the `production-hardening`
+branch of the configured repository. Never commit `.env` or agent credentials.

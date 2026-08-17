@@ -1,37 +1,12 @@
-"""FALLEN voice helpers for Windows/browser-facing voice features."""
+"""Cloud voice boundary.
 
-from __future__ import annotations
-
-import platform
-import subprocess
+Actual Windows speech remains on the authenticated Windows Agent.
+"""
 
 
-def speak(text: str) -> dict:
-    """Best-effort local Windows TTS using PowerShell SAPI.
-
-    The API returns a structured result so the frontend can treat voice as a
-    tool/action without depending on a third-party package. On non-Windows
-    systems this reports that local TTS is unavailable.
-    """
-    if not text.strip():
-        return {"ok": False, "status": "empty"}
-
-    if platform.system() != "Windows":
-        return {"ok": False, "status": "unsupported_platform"}
-
-    # Quote safely for PowerShell single-quoted string literals.
-    safe = text.replace("'", "''")
-    script = (
-        "Add-Type -AssemblyName System.Speech; "
-        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-        f"$s.Speak('{safe}')"
-    )
-
-    try:
-        subprocess.Popen(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return {"ok": True, "status": "speaking"}
-    except Exception as exc:
-        return {"ok": False, "status": "error", "message": str(exc)}
+def speak(text: str) -> dict[str, str | bool]:
+    return {
+        "ok": False,
+        "status": "windows_agent_voice",
+        "message": "Voice playback is handled by the Windows Agent.",
+    }

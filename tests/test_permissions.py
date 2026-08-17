@@ -1,17 +1,20 @@
-from backend.permissions import PermissionLevel, PermissionManager
+from backend.permissions import get_tool_policy
 
 
-def test_permission_grant_and_check() -> None:
-    manager = PermissionManager()
-    manager.grant("router.manage", PermissionLevel.WRITE)
-    assert manager.check("router.manage", PermissionLevel.READ)
-    assert manager.check("router.manage", PermissionLevel.WRITE)
-    assert not manager.check("router.manage", PermissionLevel.PRIVILEGED)
+def test_privacy_sensitive_file_reads_require_confirmation() -> None:
+    policy = get_tool_policy("windows_read_text")
+    assert policy is not None
+    assert policy.risk == "medium"
+    assert policy.requires_confirmation is True
 
 
-def test_permission_revoke() -> None:
-    manager = PermissionManager()
-    manager.grant("device.control", "write")
-    assert manager.check("device.control", PermissionLevel.WRITE)
-    assert manager.revoke("device.control")
-    assert not manager.check("device.control")
+def test_allowlisted_low_risk_tools_do_not_require_confirmation() -> None:
+    for name in ("windows_open_app", "windows_speak"):
+        policy = get_tool_policy(name)
+        assert policy is not None
+        assert policy.risk == "low"
+        assert policy.requires_confirmation is False
+
+
+def test_unknown_tool_is_not_permitted() -> None:
+    assert get_tool_policy("powershell_exec") is None
